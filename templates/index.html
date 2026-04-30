@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WorldQuant 策略工具 - 可视化任务面板</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:#f1f5f9; color:#0f172a; }
+    .topbar { background: linear-gradient(90deg, #4f46e5, #7c3aed); color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+    .topbar a { color:#e0e7ff; text-decoration:none; }
+    .container { display:grid; grid-template-columns: 460px 1fr; gap:14px; padding:14px; }
+    .panel { background:#fff; border-radius:12px; box-shadow:0 4px 18px rgba(0,0,0,.06); padding:14px; }
+    .panel h3 { margin-top:0; margin-bottom:10px; }
+    input, select, button { padding:8px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; }
+    input, select { width: 100%; box-sizing: border-box; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.6; }
+    .task-item { border:1px solid #e2e8f0; border-radius:10px; padding:10px; margin-bottom:10px; }
+    .task-id { font-family: Consolas, monospace; font-size:12px; color:#666; }
+    .actions { margin-top:8px; display:flex; gap:8px; flex-wrap: wrap; align-items:center; }
+    .btn-icon { padding:4px 8px; font-size:14px; line-height:1; min-width:28px; }
+    .hidden-section { margin-top:10px; border:1px solid #e2e8f0; border-radius:8px; padding:8px; background:#f8fafc; }
+    .hidden-section summary { cursor:pointer; font-size:13px; color:#64748b; }
+    .hidden-section .task-item { margin-bottom:6px; }
+    .task-config-block { margin-top:10px; }
+    .logbox { height: 76vh; overflow:auto; background:#0b1220; color:#d1d5db; border-radius:8px; padding:10px; white-space:pre-wrap; font-family:Consolas, monospace; font-size:12px; }
+    .status-running { color:#16a34a; }
+    .status-paused { color:#0284c7; }
+    .status-completed { color:#4338ca; }
+    .status-failed { color:#dc2626; }
+    .status-stopped { color:#d97706; }
+    .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px; }
+    .field label { display:block; font-size:12px; color:#475569; margin-bottom:4px; }
+    .field small { display:block; font-size:11px; color:#94a3b8; margin-top:3px; line-height:1.3; }
+    .tips { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px; font-size:12px; color:#334155; line-height:1.6; margin-bottom:10px; }
+    .toast-wrap { position: fixed; right: 16px; top: 16px; display:flex; flex-direction:column; gap:8px; z-index: 1000; }
+    .toast { color:#fff; padding:10px 12px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.18); min-width:220px; }
+    .toast.ok { background:#16a34a; }
+    .toast.err { background:#dc2626; }
+    .toast.info { background:#2563eb; }
+    .modal-overlay { position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:999; }
+    .modal { background:#fff; border-radius:12px; padding:20px; min-width:320px; max-width:90vw; max-height:80vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.2); }
+    .modal h3 { margin-top:0; }
+    .modal-list { list-style:none; padding:0; margin:0; }
+    .modal-list li { padding:10px 12px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; cursor:pointer; }
+    .modal-list li:hover { background:#f1f5f9; }
+    .modal-list .meta { font-size:11px; color:#94a3b8; margin-top:4px; }
+    .modal-close { margin-top:12px; padding:8px 16px; cursor:pointer; }
+    .modal-full-log, .modal-log { max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column; }
+    .full-log-content { flex:1; min-height: 400px; max-height: 70vh; overflow: auto; background:#0b1220; color:#d1d5db; border-radius:8px; padding:12px; white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <div id="toasts" class="toast-wrap"></div>
+  <div id="configModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3>选择要加载的配置</h3>
+      <ul id="configModalList" class="modal-list"></ul>
+      <button type="button" class="modal-close" id="configModalClose">取消</button>
+    </div>
+  </div>
+  <div id="fullLogModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-full-log">
+      <h3>完整日志 <span id="fullLogTaskId"></span></h3>
+      <pre id="fullLogContent" class="full-log-content"></pre>
+      <button type="button" class="modal-close" id="fullLogModalClose">关闭</button>
+    </div>
+  </div>
+  <div class="topbar">
+    <div>当前用户：{{ user_id }}</div>
+    <div>
+      <button type="button" id="refreshWqSessionBtn" title="重新登录 WorldQuant Brain，更新会话状态">刷新 WQ 会话</button>
+      <a href="{{ url_for('config') }}">高级配置</a>
+      <a href="{{ url_for('logout') }}">退出登录</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="panel">
+      <h3>启动任务</h3>
+      <div class="tips" id="paramTips">
+        选择任务后仅显示该任务所需参数。
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <select id="taskName" style="flex:1">
+          {% for name in task_names %}
+            <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+        <button id="startBtn">启动</button>
+        <button id="saveCfgBtn" style="margin-left:6px;">保存配置</button>
+        <button id="loadCfgBtn">读取配置</button>
+      </div>
+      <div id="taskConfigArea">
+        <div class="task-config-block" data-task="digging_1step" style="display:none;">
+          <div class="form-grid">
+            <div class="field">
+              <label for="datasetId_1">dataset_id</label>
+              <input id="datasetId_1" value="analyst4" placeholder="analyst4">
+              <small>数据集 ID，二/三阶段标签会基于此生成</small>
+            </div>
+            <div class="field">
+              <label for="region_1">region</label>
+              <input id="region_1" value="USA">
+              <small>区域，如 USA / EUR / CHN</small>
+            </div>
+            <div class="field">
+              <label for="delay_1">delay</label>
+              <input id="delay_1" value="1">
+              <small>回测 delay，整数</small>
+            </div>
+            <div class="field">
+              <label for="universe_1">universe</label>
+              <input id="universe_1" value="TOP3000">
+              <small>股票池，如 TOP3000</small>
+            </div>
+            <div class="field">
+              <label for="instrumentType_1">instrument_type</label>
+              <input id="instrumentType_1" value="EQUITY">
+              <small>资产类型</small>
+            </div>
+            <div class="field">
+              <label for="neutralization_1">neutralization</label>
+              <input id="neutralization_1" value="SUBINDUSTRY">
+              <small>中性化方式</small>
+            </div>
+            <div class="field">
+              <label for="nJobs_1">n_jobs</label>
+              <input id="nJobs_1" value="3">
+              <small>并发数</small>
+            </div>
+            <div class="field">
+              <label for="maxRun">max_run</label>
+              <input id="maxRun" type="number" min="0" value="0" placeholder="0=不限制">
+              <small>最多跑多少个就停止</small>
+            </div>
+          </div>
+        </div>
+        <div class="task-config-block" data-task="digging_2step" style="display:none;">
+          <div class="form-grid">
+            <div class="field">
+              <label for="datasetId_2">dataset_id</label>
+              <input id="datasetId_2" value="analyst4" placeholder="analyst4">
+              <small>数据集 ID</small>
+            </div>
+            <div class="field">
+              <label for="region_2">region</label>
+              <input id="region_2" value="USA">
+              <small>区域</small>
+            </div>
+            <div class="field">
+              <label for="delay_2">delay</label>
+              <input id="delay_2" value="1">
+              <small>delay</small>
+            </div>
+            <div class="field">
+              <label for="universe_2">universe</label>
+              <input id="universe_2" value="TOP3000">
+              <small>股票池</small>
+            </div>
+            <div class="field">
+              <label for="instrumentType_2">instrument_type</label>
+              <input id="instrumentType_2" value="EQUITY">
+              <small>资产类型</small>
+            </div>
+            <div class="field">
+              <label for="neutralization_2">neutralization</label>
+              <input id="neutralization_2" value="SUBINDUSTRY">
+              <small>中性化方式</small>
+            </div>
+            <div class="field">
+              <label for="nJobs_2">n_jobs</label>
+              <input id="nJobs_2" value="3">
+              <small>并发数</small>
+            </div>
+            <div class="field">
+              <label for="max_run_step2">max_run</label>
+              <input id="max_run_step2" type="number" min="0" value="0" placeholder="0=不限制">
+              <small>最多跑多少个就停止</small>
+            </div>
+          </div>
+        </div>
+        <div class="task-config-block" data-task="digging_3step" style="display:none;">
+          <div class="form-grid">
+            <div class="field">
+              <label for="datasetId_3">dataset_id</label>
+              <input id="datasetId_3" value="analyst4" placeholder="analyst4">
+              <small>数据集 ID</small>
+            </div>
+            <div class="field">
+              <label for="region_3">region</label>
+              <input id="region_3" value="USA">
+              <small>区域</small>
+            </div>
+            <div class="field">
+              <label for="delay_3">delay</label>
+              <input id="delay_3" value="1">
+              <small>delay</small>
+            </div>
+            <div class="field">
+              <label for="universe_3">universe</label>
+              <input id="universe_3" value="TOP3000">
+              <small>股票池</small>
+            </div>
+            <div class="field">
+              <label for="instrumentType_3">instrument_type</label>
+              <input id="instrumentType_3" value="EQUITY">
+              <small>资产类型</small>
+            </div>
+            <div class="field">
+              <label for="neutralization_3">neutralization</label>
+              <input id="neutralization_3" value="SUBINDUSTRY">
+              <small>中性化方式</small>
+            </div>
+            <div class="field">
+              <label for="nJobs_3">n_jobs</label>
+              <input id="nJobs_3" value="3">
+              <small>并发数</small>
+            </div>
+            <div class="field">
+              <label for="max_run_step3">max_run</label>
+              <input id="max_run_step3" type="number" min="0" value="0" placeholder="0=不限制">
+              <small>最多跑多少个就停止</small>
+            </div>
+          </div>
+        </div>
+        <div class="task-config-block" data-task="submit_alpha" style="display:none;">
+          <div class="form-grid">
+            <div class="field">
+              <label for="alphaId">alpha_id</label>
+              <input id="alphaId" value="" placeholder="单个或多个逗号分隔，留空则从 submitable_alpha.csv 读取">
+              <small>要提交的 Alpha ID，多个用英文逗号分隔</small>
+            </div>
+          </div>
+        </div>
+        <div class="task-config-block" data-task="check" style="display:none;">
+          <div class="form-grid">
+            <div class="field">
+              <label for="checkStartDate">start_date（日期范围）</label>
+              <input id="checkStartDate" type="text" value="2025-05-05" placeholder="YYYY-MM-DD">
+              <small>check 起始日期</small>
+            </div>
+            <div class="field">
+              <label for="checkEndDate">end_date（日期范围）</label>
+              <input id="checkEndDate" type="text" value="" placeholder="YYYY-MM-DD，留空为今天">
+              <small>check 结束日期</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <hr>
+      <h3>任务列表</h3>
+      <div id="taskList"></div>
+      <details id="hiddenTaskSection" class="hidden-section" style="display:none;">
+        <summary id="hiddenTaskSummary">已隐藏 (0)</summary>
+        <div id="hiddenTaskList"></div>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h3>任务日志</h3>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <button id="refreshLog">刷新日志</button>
+        <button id="fullLog">查看完整日志</button>
+        <button id="clearLog">清空日志</button>
+      </div>
+      <div id="logBox" class="logbox">请选择任务查看日志</div>
+    </div>
+  </div>
+
+  <script>
+    let currentTaskId = null;
+    let activeRequests = 0;
+
+    function statusClass(status) {
+      if (status === "running") return "status-running";
+      if (status === "paused") return "status-paused";
+      if (status === "completed") return "status-completed";
+      if (status === "failed") return "status-failed";
+      if (status === "stopped") return "status-stopped";
+      return "";
+    }
+
+    function showToast(message, kind = "info", timeout = 2200) {
+      const wrap = document.getElementById("toasts");
+      const div = document.createElement("div");
+      div.className = `toast ${kind}`;
+      div.textContent = message;
+      wrap.appendChild(div);
+      setTimeout(() => div.remove(), timeout);
+    }
+
+    function showError(msg) {
+      showToast(msg || "请求失败", "err", 3000);
+    }
+
+    function setBusy(yes) {
+      activeRequests += yes ? 1 : -1;
+      if (activeRequests < 0) activeRequests = 0;
+      document.querySelectorAll("button").forEach(btn => {
+        if (btn.id === "refreshLog" || btn.id === "fullLog") return;
+        btn.disabled = activeRequests > 0;
+      });
+    }
+
+    async function postJson(url, body = {}) {
+      setBusy(true);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "请求失败");
+        return data;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    const HIDDEN_TASK_IDS_KEY = "alpha_hidden_task_ids_v1";
+    function getHiddenTaskIds() {
+      try {
+        const raw = localStorage.getItem(HIDDEN_TASK_IDS_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    }
+    function setHiddenTaskIds(ids) {
+      localStorage.setItem(HIDDEN_TASK_IDS_KEY, JSON.stringify(ids));
+    }
+    function toggleHidden(taskId) {
+      const ids = getHiddenTaskIds();
+      const i = ids.indexOf(taskId);
+      if (i >= 0) ids.splice(i, 1);
+      else ids.push(taskId);
+      setHiddenTaskIds(ids);
+    }
+    function isHidden(taskId) {
+      return getHiddenTaskIds().indexOf(taskId) >= 0;
+    }
+
+    let lastTaskList = [];
+
+    function renderTaskRow(task, showHideBtn, showDeleteBtn) {
+      const p = task.params || {};
+      const runningOrPending = task.status === "running" || task.status === "pending";
+      const actions = [
+        '<button data-act="view" data-id="' + task.task_id + '">日志</button>',
+        '<button data-act="loadcfg" data-id="' + task.task_id + '" title="从该任务读取配置到上方配置区">读取配置</button>'
+      ];
+      if (runningOrPending) actions.push('<button data-act="stop" data-id="' + task.task_id + '" title="强制停止该任务">停止</button>');
+      if (showHideBtn) actions.push('<button class="btn-icon" data-act="' + (showHideBtn === "show" ? "show" : "hide") + '" data-id="' + task.task_id + '" title="' + (showHideBtn === "show" ? "显示" : "隐藏") + '">👁</button>');
+      if (showDeleteBtn) {
+        const delDisabled = runningOrPending ? ' disabled' : '';
+        const delTitle = runningOrPending ? '任务运行中，无法删除，请重启应用后再试' : '删除';
+        actions.push('<button class="btn-icon" data-act="delete" data-id="' + task.task_id + '" data-running="' + (runningOrPending ? '1' : '0') + '" title="' + delTitle + '"' + delDisabled + '>×</button>');
+      }
+      return `
+        <div><b>${task.task_name}</b> <span class="${statusClass(task.status)}">[${task.status}]</span></div>
+        <div class="task-id">${task.task_id}</div>
+        <div class="task-id">region=${p.region || "-"}, delay=${p.delay ?? "-"}, universe=${p.universe || "-"}</div>
+        <div class="actions">${actions.join("")}</div>`;
+    }
+
+    async function loadTasks() {
+      const res = await fetch("/api/tasks");
+      if (res.status === 401) { location.href = "/login"; return; }
+      const data = await res.json();
+      lastTaskList = data.tasks || [];
+      const hiddenSet = new Set(getHiddenTaskIds());
+      const visible = (data.tasks || []).filter(t => !hiddenSet.has(t.task_id));
+      const hidden = (data.tasks || []).filter(t => hiddenSet.has(t.task_id));
+
+      const list = document.getElementById("taskList");
+      list.innerHTML = "";
+      for (const task of visible) {
+        const div = document.createElement("div");
+        div.className = "task-item";
+        div.innerHTML = renderTaskRow(task, "hide", true);
+        list.appendChild(div);
+      }
+
+      const section = document.getElementById("hiddenTaskSection");
+      const summary = document.getElementById("hiddenTaskSummary");
+      const hiddenList = document.getElementById("hiddenTaskList");
+      if (hidden.length > 0) {
+        section.style.display = "block";
+        summary.textContent = "已隐藏 (" + hidden.length + ")";
+        hiddenList.innerHTML = "";
+        for (const task of hidden) {
+          const div = document.createElement("div");
+          div.className = "task-item";
+          div.innerHTML = renderTaskRow(task, "show", true);
+          hiddenList.appendChild(div);
+        }
+      } else {
+        section.style.display = "none";
+      }
+      bindTaskActions();
+    }
+
+    function bindTaskActions() {
+      document.querySelectorAll("button[data-act='view']").forEach(btn => {
+        btn.onclick = () => { currentTaskId = btn.dataset.id; loadLogs(false); };
+      });
+      document.querySelectorAll("button[data-act='loadcfg']").forEach(btn => {
+        btn.onclick = () => {
+          const taskId = btn.dataset.id;
+          const task = lastTaskList.find(t => t.task_id === taskId);
+          if (!task) {
+            showToast("未找到该任务配置", "err");
+            return;
+          }
+          const cfg = { task_name: task.task_name, ...(task.params || {}) };
+          applyConfig(cfg);
+          switchTaskConfig(task.task_name);
+          showToast("已从任务读取配置", "ok");
+        };
+      });
+      document.querySelectorAll("button[data-act='stop']").forEach(btn => {
+        btn.onclick = async () => {
+          const taskId = btn.dataset.id;
+          try {
+            const res = await fetch("/api/tasks/" + taskId + "/stop", { method: "POST" });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              showToast(errData.error || "停止失败", "err");
+              return;
+            }
+            showToast("已发送停止指令，任务将被强制终止", "ok");
+            await loadTasks();
+            if (currentTaskId === taskId) loadLogs(false);
+          } catch (e) { showError(e.message); }
+        };
+      });
+      document.querySelectorAll("button[data-act='hide']").forEach(btn => {
+        btn.onclick = () => {
+          toggleHidden(btn.dataset.id);
+          showToast("已隐藏", "ok");
+          loadTasks();
+        };
+      });
+      document.querySelectorAll("button[data-act='show']").forEach(btn => {
+        btn.onclick = () => {
+          toggleHidden(btn.dataset.id);
+          showToast("已显示", "ok");
+          loadTasks();
+        };
+      });
+      document.querySelectorAll("button[data-act='delete']").forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm("确定删除该任务？删除后不可恢复。")) return;
+          try {
+            await postJson("/api/tasks/" + btn.dataset.id + "/delete");
+            const ids = getHiddenTaskIds().filter(id => id !== btn.dataset.id);
+            setHiddenTaskIds(ids);
+            showToast("已删除", "ok");
+            if (currentTaskId === btn.dataset.id) currentTaskId = null;
+            await loadTasks();
+            loadLogs(false);
+          } catch (e) { showError(e.message); }
+        };
+      });
+    }
+
+    async function loadLogs(full) {
+      if (!currentTaskId) return;
+      const endpoint = full ? "/api/tasks/" + currentTaskId + "/logs/full" : "/api/tasks/" + currentTaskId + "/logs";
+      const res = await fetch(endpoint);
+      if (res.status === 401) { location.href = "/login"; return; }
+      const data = await res.json();
+      const logBox = document.getElementById("logBox");
+      logBox.textContent = (data.lines || []).join("\n");
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function switchTaskConfig(taskName) {
+      document.querySelectorAll("#taskConfigArea .task-config-block").forEach(el => {
+        el.style.display = (el.getAttribute("data-task") === taskName) ? "block" : "none";
+      });
+    }
+
+    function el(id) { const e = document.getElementById(id); return e ? e.value : ""; }
+    function getCurrentConfig() {
+      const taskName = document.getElementById("taskName").value;
+      const cfg = { task_name: taskName };
+      if (taskName === "digging_1step") {
+        cfg.dataset_id = el("datasetId_1"); cfg.region = el("region_1"); cfg.delay = el("delay_1");
+        cfg.universe = el("universe_1"); cfg.instrument_type = el("instrumentType_1");
+        cfg.neutralization = el("neutralization_1"); cfg.n_jobs = el("nJobs_1");
+        cfg.max_run = el("maxRun");
+      } else if (taskName === "digging_2step") {
+        cfg.dataset_id = el("datasetId_2"); cfg.region = el("region_2"); cfg.delay = el("delay_2");
+        cfg.universe = el("universe_2"); cfg.instrument_type = el("instrumentType_2");
+        cfg.neutralization = el("neutralization_2"); cfg.n_jobs = el("nJobs_2");
+        cfg.max_run = el("max_run_step2");
+      } else if (taskName === "digging_3step") {
+        cfg.dataset_id = el("datasetId_3"); cfg.region = el("region_3"); cfg.delay = el("delay_3");
+        cfg.universe = el("universe_3"); cfg.instrument_type = el("instrumentType_3");
+        cfg.neutralization = el("neutralization_3"); cfg.n_jobs = el("nJobs_3");
+        cfg.max_run = el("max_run_step3");
+      } else if (taskName === "submit_alpha") {
+        cfg.alpha_id = (el("alphaId") || "").trim();
+      } else if (taskName === "check") {
+        cfg.start_date = (el("checkStartDate") || "").trim();
+        let endVal = (el("checkEndDate") || "").trim();
+        if (!endVal) endVal = new Date().toISOString().slice(0, 10);
+        cfg.end_date = endVal;
+      }
+      return cfg;
+    }
+
+    function getAdvancedConfigFromStorage() {
+      const raw = localStorage.getItem(ADV_CFG_KEY);
+      if (raw) {
+        const d = decodeAdv(raw);
+        if (d) return d;
+      }
+      return DEFAULT_ADV;
+    }
+
+    function setEl(id, val) { const e = document.getElementById(id); if (e && val != null) e.value = val; }
+    function applyConfig(cfg) {
+      if (!cfg) return;
+      if (cfg.task_name != null) {
+        document.getElementById("taskName").value = cfg.task_name;
+        switchTaskConfig(cfg.task_name);
+      }
+      setEl("datasetId_1", cfg.dataset_id); setEl("region_1", cfg.region); setEl("delay_1", cfg.delay);
+      setEl("universe_1", cfg.universe); setEl("instrumentType_1", cfg.instrument_type); setEl("neutralization_1", cfg.neutralization); setEl("nJobs_1", cfg.n_jobs);
+      setEl("datasetId_2", cfg.dataset_id); setEl("region_2", cfg.region); setEl("delay_2", cfg.delay);
+      setEl("universe_2", cfg.universe); setEl("instrumentType_2", cfg.instrument_type); setEl("neutralization_2", cfg.neutralization); setEl("nJobs_2", cfg.n_jobs);
+      setEl("datasetId_3", cfg.dataset_id); setEl("region_3", cfg.region); setEl("delay_3", cfg.delay);
+      setEl("universe_3", cfg.universe); setEl("instrumentType_3", cfg.instrument_type); setEl("neutralization_3", cfg.neutralization); setEl("nJobs_3", cfg.n_jobs);
+      setEl("maxRun", cfg.max_run); setEl("max_run_step2", cfg.max_run); setEl("max_run_step3", cfg.max_run);
+      setEl("alphaId", cfg.alpha_id);
+      setEl("checkStartDate", cfg.start_date); setEl("checkEndDate", cfg.end_date);
+      var advKeys = ["decay", "sharpe_th_step2", "fitness_th_step2", "longCount_th_step2", "shortCount_th_step2", "sharpe_th_step3", "fitness_th_step3", "longCount_th_step3", "shortCount_th_step3"];
+      var hasAdv = advKeys.some(function(k) { return cfg[k] != null && cfg[k] !== ""; });
+      if (hasAdv) {
+        var adv = Object.assign({}, DEFAULT_ADV, getAdvancedConfigFromStorage());
+        advKeys.forEach(function(k) { if (cfg[k] != null && cfg[k] !== "") adv[k] = cfg[k]; });
+        try { localStorage.setItem(ADV_CFG_KEY, encodeAdv(adv)); } catch (e) {}
+      }
+    }
+
+    const CONFIGS_KEY = "alpha_task_configs_v1";
+    const ADV_CFG_KEY = "alpha_adv_config_v1";
+
+    const DEFAULT_ADV = {
+      decay: "5",
+      sharpe_th_step2: "0.75", fitness_th_step2: "0.5", longCount_th_step2: "100", shortCount_th_step2: "100",
+      sharpe_th_step3: "1.0", fitness_th_step3: "0.75", longCount_th_step3: "100", shortCount_th_step3: "100",
+    };
+
+    function decodeAdv(raw) {
+      try {
+        return JSON.parse(decodeURIComponent(escape(atob(raw))));
+      } catch {
+        return null;
+      }
+    }
+
+    function encodeAdv(cfg) {
+      try {
+        return btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
+      } catch {
+        return "";
+      }
+    }
+
+    function getSavedConfigs() {
+      try {
+        const raw = localStorage.getItem(CONFIGS_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveConfigToList(item) {
+      const list = getSavedConfigs();
+      list.push(item);
+      localStorage.setItem(CONFIGS_KEY, JSON.stringify(list));
+    }
+
+    document.getElementById("saveCfgBtn").onclick = () => {
+      const name = prompt("配置名称（用于区分多个配置）：");
+      if (name == null || !name.trim()) {
+        if (name !== null) showToast("请输入名称", "err");
+        return;
+      }
+      const basic = getCurrentConfig();
+      const adv = { ...DEFAULT_ADV, ...getAdvancedConfigFromStorage() };
+      if (basic.decay != null) adv.decay = basic.decay;
+      if (basic.sharpe_th_step2 != null) adv.sharpe_th_step2 = basic.sharpe_th_step2;
+      if (basic.fitness_th_step2 != null) adv.fitness_th_step2 = basic.fitness_th_step2;
+      if (basic.longCount_th_step2 != null) adv.longCount_th_step2 = basic.longCount_th_step2;
+      if (basic.shortCount_th_step2 != null) adv.shortCount_th_step2 = basic.shortCount_th_step2;
+      if (basic.sharpe_th_step3 != null) adv.sharpe_th_step3 = basic.sharpe_th_step3;
+      if (basic.fitness_th_step3 != null) adv.fitness_th_step3 = basic.fitness_th_step3;
+      if (basic.longCount_th_step3 != null) adv.longCount_th_step3 = basic.longCount_th_step3;
+      if (basic.shortCount_th_step3 != null) adv.shortCount_th_step3 = basic.shortCount_th_step3;
+      const item = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), name: name.trim(), savedAt: new Date().toLocaleString(), basic, adv };
+      saveConfigToList(item);
+      showToast("已保存为：「" + item.name + "」", "ok");
+    };
+
+    document.getElementById("loadCfgBtn").onclick = () => {
+      const list = getSavedConfigs();
+      if (list.length === 0) {
+        showToast("暂无已保存的配置", "info");
+        return;
+      }
+      const wrap = document.getElementById("configModal");
+      const listEl = document.getElementById("configModalList");
+      listEl.innerHTML = "";
+      list.forEach((item) => {
+        const li = document.createElement("li");
+        li.innerHTML = `<div>${item.name}</div><div class="meta">${item.savedAt || ""}</div>`;
+        li.onclick = () => {
+          applyConfig(item.basic);
+          if (item.adv) {
+            localStorage.setItem(ADV_CFG_KEY, encodeAdv(item.adv));
+            applyConfig(item.adv);
+          }
+          wrap.style.display = "none";
+          showToast("已载入：「" + item.name + "」", "ok");
+        };
+        listEl.appendChild(li);
+      });
+      wrap.style.display = "flex";
+    };
+
+    document.getElementById("configModalClose").onclick = () => {
+      document.getElementById("configModal").style.display = "none";
+    };
+    document.getElementById("configModal").onclick = (e) => {
+      if (e.target.id === "configModal") document.getElementById("configModal").style.display = "none";
+    };
+
+    document.getElementById("refreshWqSessionBtn").onclick = async () => {
+      const btn = document.getElementById("refreshWqSessionBtn");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/refresh_wq_session", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          showToast(data.message || "WorldQuant 会话已刷新", "ok");
+        } else {
+          showToast(data.error || "刷新失败", "err");
+        }
+      } catch (e) {
+        showToast(e.message || "刷新失败", "err");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    document.getElementById("startBtn").onclick = async () => {
+      try {
+        const payload = getCurrentConfig();
+        const taskName = payload.task_name;
+        const adv = getAdvancedConfigFromStorage();
+        if (taskName === "digging_1step" && adv.decay != null) payload.decay = adv.decay;
+        if (taskName === "digging_2step") {
+          if (adv.sharpe_th_step2 != null) payload.sharpe_th_step2 = adv.sharpe_th_step2;
+          if (adv.fitness_th_step2 != null) payload.fitness_th_step2 = adv.fitness_th_step2;
+          if (adv.longCount_th_step2 != null) payload.longCount_th_step2 = adv.longCount_th_step2;
+          if (adv.shortCount_th_step2 != null) payload.shortCount_th_step2 = adv.shortCount_th_step2;
+        }
+        if (taskName === "digging_3step") {
+          if (adv.sharpe_th_step3 != null) payload.sharpe_th_step3 = adv.sharpe_th_step3;
+          if (adv.fitness_th_step3 != null) payload.fitness_th_step3 = adv.fitness_th_step3;
+          if (adv.longCount_th_step3 != null) payload.longCount_th_step3 = adv.longCount_th_step3;
+          if (adv.shortCount_th_step3 != null) payload.shortCount_th_step3 = adv.shortCount_th_step3;
+        }
+        const data = await postJson("/api/tasks/start", payload);
+        currentTaskId = data.task_id;
+        showToast("任务已启动: " + data.task_id, "ok");
+        await loadTasks();
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+
+    document.getElementById("taskName").addEventListener("change", () => {
+      switchTaskConfig(document.getElementById("taskName").value);
+    });
+
+    document.getElementById("refreshLog").onclick = () => loadLogs(false);
+    document.getElementById("fullLog").onclick = async () => {
+      if (!currentTaskId) {
+        showToast("请先选择任务查看日志", "info");
+        return;
+      }
+      try {
+        const res = await fetch("/task_logs_full/" + currentTaskId);
+        if (res.status === 401) { location.href = "/login"; return; }
+        const data = await res.json();
+        document.getElementById("fullLogContent").textContent = (data.lines || []).join("\n");
+        document.getElementById("fullLogTaskId").textContent = "(" + currentTaskId + ")";
+        document.getElementById("fullLogModal").style.display = "flex";
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+    document.getElementById("fullLogModalClose").onclick = () => {
+      document.getElementById("fullLogModal").style.display = "none";
+    };
+    document.getElementById("fullLogModal").onclick = (e) => {
+      if (e.target.id === "fullLogModal") document.getElementById("fullLogModal").style.display = "none";
+    };
+    document.getElementById("clearLog").onclick = async () => {
+      if (!currentTaskId) return;
+      try {
+        await postJson(`/clear_task_log/${currentTaskId}`);
+        showToast("日志已清空", "ok");
+        await loadLogs(false);
+      } catch (e) {
+        showError(e.message);
+      }
+    };
+
+    switchTaskConfig(document.getElementById("taskName").value);
+    loadTasks();
+    setInterval(loadTasks, 4000);
+    setInterval(() => loadLogs(false), 3000);
+  </script>
+</body>
+</html>

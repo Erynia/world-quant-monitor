@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WorldQuant Brain 登录</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f7f8fa; margin:0; }
+    .card { width: 420px; margin: 70px auto; background:#fff; border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.08); padding:24px; }
+    h2 { margin-top:0; }
+    .row { margin-bottom: 12px; }
+    label { display:block; font-size:14px; color:#333; margin-bottom:6px; }
+    input[type="text"], input[type="password"] { width:100%; padding:10px; box-sizing:border-box; border:1px solid #ddd; border-radius:8px; }
+    .error { background:#fff2f0; border:1px solid #ffccc7; color:#cf1322; border-radius:8px; padding:10px; margin-bottom:12px; }
+    button { width:100%; padding:11px; border:none; border-radius:8px; background:#1677ff; color:white; cursor:pointer; font-size:15px; }
+    .help { font-size:12px; color:#666; line-height:1.6; margin-top:14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>WorldQuant Brain 登录</h2>
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="{{ url_for('login') }}">
+      <div class="row">
+        <p>系统将使用配置文件中的用户信息进行登录</p>
+      </div>
+      <div class="row">
+        <label><input name="remember_me" type="checkbox"> 记住我（保持登录状态）</label>
+      </div>
+      <button type="submit">登录</button>
+    </form>
+    <div class="help">
+      请输入您的 WorldQuant Brain 账号和密码进行登录。<br>
+      系统将验证您的账号信息，验证通过后即可使用策略工具。<br>
+      您的密码将被安全存储，仅用于与 WorldQuant Brain 平台的通信。
+    </div>
+  </div>
+</body>
+</html>

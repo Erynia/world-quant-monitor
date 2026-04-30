@@ -1,0 +1,10 @@
+pandas
+numpy
+requests
+flask
+pyyaml
+aiohttp
+asyncio
+aiofiles
+tqdm
+loguru
